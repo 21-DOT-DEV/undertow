@@ -4,7 +4,9 @@ let project = Project(
     name: "Undertow",
     packages: [
         .package(path: "."),
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0")
+//        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
+//        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
+//        .package(url: "https://github.com/swiftlang/indexstore-db.git", branch: "main"),
     ],
     settings: .settings(
         configurations: [
@@ -22,7 +24,10 @@ let project = Project(
             bundleId: "dev.21.UndertowKit",
             deploymentTargets: .macOS("26.0"),
             sources: ["Sources/UndertowKit/**"],
-            dependencies: [],
+            dependencies: [
+                .package(product: "SwiftSyntax"),
+                .package(product: "SwiftParser")
+            ],
             settings: .settings(
                 configurations: [
                     .debug(name: "Debug", xcconfig: "Resources/UndertowKit/Debug.xcconfig"),
@@ -64,7 +69,8 @@ let project = Project(
             entitlements: "Resources/UndertowHelper/UndertowHelper.entitlements",
             dependencies: [
                 .target(name: "UndertowKit"),
-                .package(product: "MCP")
+                .package(product: "MCP"),
+                .package(product: "IndexStoreDB")
             ],
             settings: .settings(
                 configurations: [

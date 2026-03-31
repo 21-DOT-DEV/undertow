@@ -9,7 +9,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/21-DOT-DEV/swift-plugin-tuist.git", exact: "4.169.1"),
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0")
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
+        .package(url: "https://github.com/swiftlang/indexstore-db.git", branch: "main"),
     ],
     targets: []
 )
