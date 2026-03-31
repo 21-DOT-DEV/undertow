@@ -5,8 +5,32 @@
 ## User settings
 xcuserdata/
 
+## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
+*.xcscmblueprint
+*.xccheckout
+
+## compatibility with Xcode 3 and earlier (ignoring not required starting Xcode 4)
+build/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
 ## Obj-C/Swift specific
 *.hmap
+
+## Swift build artifacts
+*.d
+*.dia
+*.swiftdeps
+*.swiftmodule
+*.swiftsourceinfo
 
 ## App packaging
 *.ipa
@@ -17,17 +41,20 @@ xcuserdata/
 timeline.xctimeline
 playground.xcworkspace
 
+## macOS
+.DS_Store
+
 # Swift Package Manager
 #
 # Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
-# Packages/
-# Package.pins
-# Package.resolved
-# *.xcodeproj
-#
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj
+
 # Xcode automatically generates this directory with a .xcworkspacedata file and xcuserdata
 # hence it is not needed unless you have added a package configuration file to your project
-# .swiftpm
+.swiftpm
 
 .build/
 
@@ -40,7 +67,7 @@ playground.xcworkspace
 # Pods/
 #
 # Add this line if you want to avoid checking in source code from the Xcode workspace
-# *.xcworkspace
+*.xcworkspace
 
 # Carthage
 #
@@ -48,6 +75,10 @@ playground.xcworkspace
 # Carthage/Checkouts
 
 Carthage/Build/
+
+# Accio dependency management
+Dependencies/
+.accio/
 
 # fastlane
 #
@@ -60,3 +91,16 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Code Injection
+#
+# After new code Injection tools there's a generated folder /iOSInjectionProject
+# https://github.com/johnno1962/injectionforxcode
+
+iOSInjectionProject/
+
+# Tuist
+**/Derived/*
+
+# mcp
+.mcp_data/
