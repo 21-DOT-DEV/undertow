@@ -4,9 +4,6 @@ let project = Project(
     name: "Undertow",
     packages: [
         .package(path: "."),
-//        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-//        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
-//        .package(url: "https://github.com/swiftlang/indexstore-db.git", branch: "main"),
     ],
     settings: .settings(
         configurations: [
@@ -67,10 +64,26 @@ let project = Project(
             deploymentTargets: .macOS("26.0"),
             sources: ["Sources/UndertowHelper/**"],
             entitlements: "Resources/UndertowHelper/UndertowHelper.entitlements",
+            scripts: [
+                .post(
+                    script: """
+                    INSTALL_DIR="$HOME/Library/Application Support/Undertow/bin"
+                    SYMLINK_DIR="$HOME/.undertow/bin"
+                    mkdir -p "$INSTALL_DIR" "$SYMLINK_DIR"
+                    cp "$BUILT_PRODUCTS_DIR/UndertowHelper" "$INSTALL_DIR/UndertowHelper"
+                    codesign --force --sign - "$INSTALL_DIR/UndertowHelper"
+                    ln -sf "$INSTALL_DIR/UndertowHelper" "$SYMLINK_DIR/UndertowHelper"
+                    echo "Installed UndertowHelper to $INSTALL_DIR (symlinked from $SYMLINK_DIR)"
+                    """,
+                    name: "Install UndertowHelper",
+                    basedOnDependencyAnalysis: false
+                )
+            ],
             dependencies: [
                 .target(name: "UndertowKit"),
                 .package(product: "MCP"),
-                .package(product: "IndexStoreDB")
+                .package(product: "IndexStoreDB"),
+                .package(product: "Subprocess")
             ],
             settings: .settings(
                 configurations: [
@@ -96,6 +109,9 @@ let project = Project(
                 .sdk(name: "XcodeKit", type: .framework)
             ],
             settings: .settings(
+                base: [
+                    "CODE_SIGN_IDENTITY": "Apple Development"
+                ],
                 configurations: [
                     .debug(name: "Debug", xcconfig: "Resources/UndertowExtension/Debug.xcconfig"),
                     .release(name: "Release", xcconfig: "Resources/UndertowExtension/Release.xcconfig")
@@ -117,11 +133,40 @@ let project = Project(
                 "Resources/Undertow/Preview Content/**"
             ],
             entitlements: "Resources/Undertow/Undertow.entitlements",
+            scripts: [
+                .post(
+                    script: """
+                    # Embed helper executables into the app bundle (Contents/Helpers/)
+                    # Tuist does not auto-embed .commandLineTool targets, so we copy manually.
+                    # Pattern borrowed from CopilotForXcode (which uses Contents/Applications/).
+                    HELPERS_DIR="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers"
+                    mkdir -p "$HELPERS_DIR"
+
+                    for TOOL in UndertowHelper UndertowBridge; do
+                        SRC="${BUILT_PRODUCTS_DIR}/${TOOL}"
+                        if [ -f "$SRC" ]; then
+                            cp "$SRC" "$HELPERS_DIR/$TOOL"
+                            codesign --force --sign "${CODE_SIGN_IDENTITY:-"-"}" "$HELPERS_DIR/$TOOL"
+                            echo "Embedded $TOOL in app bundle"
+                        else
+                            echo "warning: $TOOL not found at $SRC" >&2
+                        fi
+                    done
+                    """,
+                    name: "Embed Helper Executables",
+                    basedOnDependencyAnalysis: false
+                )
+            ],
             dependencies: [
                 .target(name: "UndertowKit"),
-                .target(name: "UndertowExtension")
+                .target(name: "UndertowExtension"),
+                .target(name: "UndertowHelper"),
+                .target(name: "UndertowBridge")
             ],
             settings: .settings(
+                base: [
+                    "CODE_SIGN_IDENTITY": "Apple Development"
+                ],
                 configurations: [
                     .debug(name: "Debug", xcconfig: "Resources/Undertow/Debug.xcconfig"),
                     .release(name: "Release", xcconfig: "Resources/Undertow/Release.xcconfig")
@@ -139,7 +184,8 @@ let project = Project(
             deploymentTargets: .macOS("26.0"),
             sources: ["Sources/UndertowTests/**"],
             dependencies: [
-                .target(name: "UndertowKit")
+                .target(name: "UndertowKit"),
+                .package(product: "Subprocess")
             ],
             settings: .settings(
                 configurations: [
@@ -147,6 +193,14 @@ let project = Project(
                     .release(name: "Release", xcconfig: "Resources/UndertowTests/Release.xcconfig")
                 ]
             )
+        )
+    ],
+    schemes: [
+        .scheme(
+            name: "UndertowTests",
+            shared: true,
+            buildAction: .buildAction(targets: ["UndertowKit", "UndertowTests"]),
+            testAction: .targets(["UndertowTests"])
         )
     ]
 )

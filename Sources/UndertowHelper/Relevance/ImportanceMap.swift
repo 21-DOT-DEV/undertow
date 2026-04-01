@@ -1,4 +1,5 @@
 import Foundation
+import Subprocess
 import UndertowKit
 
 /// Pre-computes file importance scores based on edit frequency, git churn,
@@ -82,27 +83,23 @@ actor ImportanceMap {
 
     private func computeGitChurn(projectRoot: String) async -> [String: Double] {
         // Use git log to count commits per file in last 30 days
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = [
-            "-C", projectRoot,
-            "log", "--name-only", "--format=", "--since=30.days.ago"
-        ]
-        process.currentDirectoryURL = URL(fileURLWithPath: projectRoot)
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
+        let output: String
         do {
-            try process.run()
-            process.waitUntilExit()
+            let result = try await Subprocess.run(
+                .name("git"),
+                arguments: .init([
+                    "-C", projectRoot,
+                    "log", "--name-only", "--format=", "--since=30.days.ago"
+                ]),
+                output: .string(limit: 512 * 1024),
+                error: .string(limit: 4096)
+            )
+            guard case .exited(0) = result.terminationStatus,
+                  let stdout = result.standardOutput else { return [:] }
+            output = stdout
         } catch {
             return [:]
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
 
         // Count occurrences of each file
         var counts: [String: Int] = [:]

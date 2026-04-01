@@ -102,5 +102,8 @@ iOSInjectionProject/
 # Tuist
 **/Derived/*
 
+# Local developer settings (team ID, signing overrides)
+Local.xcconfig
+
 # mcp
 .mcp_data/

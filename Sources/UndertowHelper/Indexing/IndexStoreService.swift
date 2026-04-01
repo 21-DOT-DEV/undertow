@@ -1,5 +1,6 @@
 import Foundation
 import IndexStoreDB
+import Subprocess
 import UndertowKit
 
 /// Provides symbol-level queries using Xcode's index store.
@@ -26,7 +27,7 @@ actor IndexStoreService {
                 withIntermediateDirectories: true
             )
 
-            let lib = try IndexStoreLibrary(dylibPath: libIndexStorePath())
+            let lib = try IndexStoreLibrary(dylibPath: await libIndexStorePath())
 
             db = try IndexStoreDB(
                 storePath: storePath,
@@ -163,21 +164,20 @@ actor IndexStoreService {
         return storePath.path
     }
 
-    private func libIndexStorePath() throws -> String {
+    private func libIndexStorePath() async throws -> String {
         // Standard Xcode location for libIndexStore.dylib
         let path = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libIndexStore.dylib"
         guard FileManager.default.fileExists(atPath: path) else {
             // Try xcode-select path
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-            process.arguments = ["--find", "swift"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            try process.run()
-            process.waitUntilExit()
+            let result = try await Subprocess.run(
+                .name("xcrun"),
+                arguments: ["--find", "swift"],
+                output: .string(limit: 4096),
+                error: .string(limit: 4096)
+            )
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let swiftPath = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if case .exited(0) = result.terminationStatus,
+               let swiftPath = result.standardOutput?.trimmingCharacters(in: .whitespacesAndNewlines) {
                 let toolchainLib = (swiftPath as NSString)
                     .deletingLastPathComponent
                     .appending("/../lib/libIndexStore.dylib")

@@ -6,6 +6,7 @@ import UndertowKit
 final class UndertowMCPServer: Sendable {
     private let server: Server
     private let searchEngine = SemanticSearchEngine()
+    private let buildObserver = BuildLogObserver()
 
     init() {
         server = Server(
@@ -16,10 +17,13 @@ final class UndertowMCPServer: Sendable {
     }
 
     func start() async throws {
-        // Initialize the search engine from workspace context
+        // Initialize from workspace context
         let projectPath = detectProjectPath()
         let (projectRoot, projectName) = FlowContextAggregator.resolveProject(path: projectPath)
         await searchEngine.initialize(projectRoot: projectRoot, projectName: projectName)
+
+        // Start background observers
+        await buildObserver.start(projectName: projectName)
 
         // Tool definitions
         let helloTool = Tool(
@@ -28,7 +32,16 @@ final class UndertowMCPServer: Sendable {
             inputSchema: .object(["type": .string("object"), "properties": .object([:])])
         )
 
-        let allTools = [helloTool, SemanticSearchEngine.toolDefinition]
+        let flowContextTool = Tool(
+            name: "get_flow_context",
+            description: "Returns the developer's current flow context: git branch, uncommitted changes, diff stats, recent commits, recently modified files, and any available Xcode observer data (active file, build status, scheme). Call this at the start of each conversation to understand what the developer is working on.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([:])
+            ])
+        )
+
+        let allTools = [helloTool, flowContextTool, SemanticSearchEngine.toolDefinition]
             + SemanticSearchEngine.indexToolDefinitions
 
         await server.withMethodHandler(ListTools.self) { _ in
@@ -36,10 +49,18 @@ final class UndertowMCPServer: Sendable {
         }
 
         let engine = searchEngine
+        let projectDir = projectPath
+        let buildObs = buildObserver
         await server.withMethodHandler(CallTool.self) { params in
             switch params.name {
             case "hello":
                 return .init(content: [.text(text: "Hello from Undertow! MCP server is operational.", annotations: nil, _meta: nil)])
+            case "get_flow_context":
+                let context = await GitContextProvider.gatherHybridContext(
+                    projectDir: projectDir,
+                    buildObserver: buildObs
+                )
+                return .init(content: [.text(text: context, annotations: nil, _meta: nil)])
             case "semantic_search", "find_symbol_references", "find_conformances":
                 let content = try await engine.handleToolCall(
                     name: params.name,
