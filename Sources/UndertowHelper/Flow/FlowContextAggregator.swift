@@ -28,13 +28,14 @@ actor FlowContextAggregator {
 
     /// Start all observers.
     ///
-    /// - Parameter projectPath: Root directory of the project to watch.
+    /// - Parameter projectPath: Path to the project workspace, project file, or root directory.
     func start(projectPath: String) async {
-        // Create a new file observer with the actual project path
-        let fsObserver = FileSystemObserver(path: projectPath)
+        // Resolve workspace/project path into a root directory and project name
+        let (projectRoot, projectName) = Self.resolveProject(path: projectPath)
+
+        let fsObserver = FileSystemObserver(path: projectRoot)
         await fsObserver.start()
 
-        let projectName = (projectPath as NSString).lastPathComponent
         await buildObserver.start(projectName: projectName)
         await xcodeObserver.start()
 
@@ -73,7 +74,7 @@ actor FlowContextAggregator {
             }
         }
 
-        fputs("FlowContextAggregator: started for \(projectPath)\n", stderr)
+        fputs("FlowContextAggregator: started for \(projectRoot) (project: \(projectName))\n", stderr)
     }
 
     /// Stop all observers and tasks.
@@ -206,6 +207,23 @@ actor FlowContextAggregator {
             currentContext.recentNavigation = Array(currentContext.recentNavigation.prefix(20))
         }
         dirty = true
+    }
+
+    // MARK: - Path Resolution
+
+    /// Resolve a workspace/project path into a root directory and project name.
+    ///
+    /// - `/path/to/undertow/Undertow.xcworkspace` → root: `/path/to/undertow`, name: `Undertow`
+    /// - `/path/to/undertow/Undertow.xcodeproj` → root: `/path/to/undertow`, name: `Undertow`
+    /// - `/path/to/undertow` → root: `/path/to/undertow`, name: `undertow`
+    static func resolveProject(path: String) -> (root: String, name: String) {
+        let ext = (path as NSString).pathExtension
+        if ext == "xcworkspace" || ext == "xcodeproj" {
+            let root = (path as NSString).deletingLastPathComponent
+            let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            return (root, name)
+        }
+        return (path, (path as NSString).lastPathComponent)
     }
 }
 

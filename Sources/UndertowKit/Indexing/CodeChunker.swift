@@ -80,8 +80,8 @@ public struct CodeChunker: Sendable {
     // MARK: - Line-Based Chunking
 
     private func chunkByLines(filePath: String, source: String) -> [CodeChunk] {
+        guard !source.isEmpty else { return [] }
         let lines = source.components(separatedBy: "\n")
-        guard !lines.isEmpty else { return [] }
 
         var chunks: [CodeChunk] = []
         var start = 0

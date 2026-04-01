@@ -20,7 +20,7 @@ let project = Project(
         .target(
             name: "UndertowKit",
             destinations: [.mac],
-            product: .framework,
+            product: .staticLibrary,
             bundleId: "dev.21.UndertowKit",
             deploymentTargets: .macOS("26.0"),
             sources: ["Sources/UndertowKit/**"],
@@ -139,7 +139,6 @@ let project = Project(
             deploymentTargets: .macOS("26.0"),
             sources: ["Sources/UndertowTests/**"],
             dependencies: [
-                .target(name: "Undertow"),
                 .target(name: "UndertowKit")
             ],
             settings: .settings(

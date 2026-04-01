@@ -18,7 +18,8 @@ final class UndertowMCPServer: Sendable {
     func start() async throws {
         // Initialize the search engine from workspace context
         let projectPath = detectProjectPath()
-        await searchEngine.initialize(projectRoot: projectPath)
+        let (projectRoot, projectName) = FlowContextAggregator.resolveProject(path: projectPath)
+        await searchEngine.initialize(projectRoot: projectRoot, projectName: projectName)
 
         // Tool definitions
         let helloTool = Tool(

@@ -12,6 +12,8 @@ final class XPCController: NSObject {
     private let xpcListener = NSXPCListener.anonymous()
     private var bridgeConnection: NSXPCConnection?
     private var pingTask: Task<Void, Never>?
+    private var bridgeReconnectDelay: TimeInterval = 5
+    private var bridgeErrorLogged = false
 
     /// The shared flow context aggregator.
     let aggregator = FlowContextAggregator()
@@ -37,7 +39,10 @@ final class XPCController: NSObject {
             // or fall back to the current working directory
             let projectPath = await detectProjectPath()
             await aggregator.start(projectPath: projectPath)
-            await searchEngine.initialize(projectRoot: projectPath)
+
+            // Resolve to actual root directory for the search engine
+            let (projectRoot, projectName) = FlowContextAggregator.resolveProject(path: projectPath)
+            await searchEngine.initialize(projectRoot: projectRoot, projectName: projectName)
         }
     }
 
@@ -61,9 +66,12 @@ final class XPCController: NSObject {
         let connection = NSXPCConnection(machServiceName: UndertowXPC.bridgeServiceName)
         connection.remoteObjectInterface = NSXPCInterface(with: BridgeXPCProtocol.self)
         connection.invalidationHandler = { [weak self] in
-            self?.bridgeConnection = nil
-            // Reconnect after a delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self else { return }
+            self.bridgeConnection = nil
+            // Exponential backoff: 5s → 10s → 20s → 40s → cap at 60s
+            let delay = self.bridgeReconnectDelay
+            self.bridgeReconnectDelay = min(delay * 2, 60)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.connectToBridge()
             }
         }
@@ -71,11 +79,15 @@ final class XPCController: NSObject {
         bridgeConnection = connection
 
         // Register our endpoint with the bridge
-        let proxy = connection.remoteObjectProxyWithErrorHandler { error in
-            fputs("Bridge XPC error: \(error)\n", stderr)
+        let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self] error in
+            guard let self, !self.bridgeErrorLogged else { return }
+            self.bridgeErrorLogged = true
+            fputs("Bridge XPC: not available (will retry in background)\n", stderr)
         } as? BridgeXPCProtocol
 
-        proxy?.updateHelperEndpoint(xpcListener.endpoint) {
+        proxy?.updateHelperEndpoint(xpcListener.endpoint) { [weak self] in
+            self?.bridgeReconnectDelay = 5  // Reset backoff on success
+            self?.bridgeErrorLogged = false
             fputs("Helper endpoint registered with bridge.\n", stderr)
         }
     }

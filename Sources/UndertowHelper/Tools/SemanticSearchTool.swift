@@ -17,10 +17,14 @@ actor SemanticSearchEngine {
     private var lastIndexTime: Date?
 
     /// Initialize the search engine for a project.
-    func initialize(projectRoot: String) async {
+    ///
+    /// - Parameters:
+    ///   - projectRoot: The actual root directory containing source files.
+    ///   - projectName: The project name for DerivedData/IndexStore lookup (e.g. "Undertow").
+    func initialize(projectRoot: String, projectName: String? = nil) async {
         self.projectRoot = projectRoot
-        let projectName = (projectRoot as NSString).lastPathComponent
-        await indexStore.initialize(projectName: projectName)
+        let name = projectName ?? (projectRoot as NSString).lastPathComponent
+        await indexStore.initialize(projectName: name)
         await reindex()
     }
 
