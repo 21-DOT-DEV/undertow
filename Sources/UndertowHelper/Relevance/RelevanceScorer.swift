@@ -10,6 +10,9 @@ actor RelevanceScorer {
     private var scoreCache: [String: Int] = [:]
     private let maxCacheSize = 500
 
+    /// Max concurrent FM sessions to avoid saturating the Neural Engine.
+    private let maxConcurrentFMCalls = 8
+
     // MARK: - BM25 Text Search
 
     /// Pre-filter chunks using BM25 scoring.
@@ -18,10 +21,12 @@ actor RelevanceScorer {
     ///   - query: The search query.
     ///   - chunks: All available code chunks.
     ///   - topK: Number of top results to return.
-    /// - Returns: Top-k chunks sorted by BM25 score.
-    func bm25Filter(query: String, chunks: [CodeChunk], topK: Int = 50) -> [CodeChunk] {
+    /// - Returns: Top-k chunks sorted by BM25 score, with their scores.
+    func bm25Filter(query: String, chunks: [CodeChunk], topK: Int = 50) -> [(chunk: CodeChunk, bm25Score: Double)] {
         let queryTerms = tokenize(query)
-        guard !queryTerms.isEmpty else { return Array(chunks.prefix(topK)) }
+        guard !queryTerms.isEmpty else {
+            return chunks.prefix(topK).map { ($0, 0.0) }
+        }
 
         // Compute IDF for each term
         let totalDocs = Double(chunks.count)
@@ -39,7 +44,7 @@ actor RelevanceScorer {
         let b = 0.75
 
         // Score each chunk
-        var scored: [(chunk: CodeChunk, score: Double)] = chunks.map { chunk in
+        var scored: [(chunk: CodeChunk, bm25Score: Double)] = chunks.map { chunk in
             let dl = Double(wordCount(chunk))
             var score = 0.0
 
@@ -60,37 +65,56 @@ actor RelevanceScorer {
             return (chunk, score)
         }
 
-        scored.sort { $0.score > $1.score }
-        return scored.prefix(topK).map(\.chunk)
+        scored.sort { $0.bm25Score > $1.bm25Score }
+        return Array(scored.prefix(topK))
     }
 
     // MARK: - Foundation Models Scoring
+
+    /// Minimum BM25 score required to justify Foundation Models calls.
+    /// Below this threshold, BM25 found no meaningful lexical match,
+    /// so FM scoring would waste compute on irrelevant chunks.
+    private let minimumBM25Score: Double = 0.5
 
     /// Score chunks using Foundation Models for semantic relevance.
     ///
     /// - Parameters:
     ///   - query: The natural language query.
-    ///   - candidates: Pre-filtered candidate chunks from BM25.
+    ///   - candidates: Pre-filtered candidate chunks from BM25 with their scores.
     ///   - topK: Number of top results to return.
     /// - Returns: Scored and ranked chunks, or BM25-only results if LLM unavailable.
     func score(
         query: String,
-        candidates: [CodeChunk],
+        candidates: [(chunk: CodeChunk, bm25Score: Double)],
         topK: Int = 10
     ) async -> [ChunkRelevance] {
+        let maxBM25 = candidates.first?.bm25Score ?? 0.0
+
+        // Skip FM when BM25 found no meaningful lexical overlap
+        guard maxBM25 >= minimumBM25Score else {
+            fputs("RelevanceScorer: max BM25 score \(String(format: "%.2f", maxBM25)) below threshold, skipping FM\n", stderr)
+            return bm25FallbackResults(query: query, candidates: candidates.map(\.chunk), topK: topK)
+        }
+
         // Check if Foundation Models is available
         guard SystemLanguageModel.default.isAvailable else {
             fputs("RelevanceScorer: Foundation Models unavailable, using BM25 only\n", stderr)
-            return bm25FallbackResults(query: query, candidates: candidates, topK: topK)
+            return bm25FallbackResults(query: query, candidates: candidates.map(\.chunk), topK: topK)
         }
 
-        // Score in parallel with a TaskGroup
+        // FM budget scales with requested results (2× topK, capped at candidate count)
+        let fmBudget = min(topK * 2, candidates.count)
+
+        // Throttle concurrent FM sessions to avoid Neural Engine saturation
         var results: [ChunkRelevance] = []
+        let semaphore = AsyncSemaphore(count: maxConcurrentFMCalls)
 
         await withTaskGroup(of: ChunkRelevance?.self) { group in
-            for candidate in candidates.prefix(20) {
+            for candidate in candidates.prefix(fmBudget) {
                 group.addTask { [self] in
-                    await self.scoreChunk(query: query, chunk: candidate)
+                    await semaphore.wait()
+                    defer { semaphore.signal() }
+                    return await self.scoreChunk(query: query, chunk: candidate.chunk)
                 }
             }
 
@@ -211,6 +235,28 @@ actor RelevanceScorer {
             searchRange = range.upperBound..<lower.endIndex
         }
         return count
+    }
+}
+
+// MARK: - AsyncSemaphore
+
+/// Lightweight async semaphore for throttling concurrent work.
+private final class AsyncSemaphore: Sendable {
+    private let semaphore: DispatchSemaphore
+
+    init(count: Int) {
+        semaphore = DispatchSemaphore(value: count)
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            semaphore.wait()
+            continuation.resume()
+        }
+    }
+
+    func signal() {
+        semaphore.signal()
     }
 }
 

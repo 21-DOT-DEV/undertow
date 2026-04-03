@@ -92,6 +92,55 @@ struct TestHarness {
             stderr: result.standardError ?? ""
         )
     }
+    /// Run UndertowHelper in MCP mode, sending JSON-RPC messages and capturing output.
+    ///
+    /// The MCP server runs indefinitely, so we kill it after a timeout.
+    func runMCP(
+        messages: [String],
+        environment: [String: String] = [:],
+        timeout: Int = 5
+    ) async throws -> CommandResult {
+        let escapedPath = executablePath.string.replacingOccurrences(of: "'", with: "'\\''")
+
+        var exports = ""
+        for (key, value) in environment {
+            let escapedValue = value.replacingOccurrences(of: "'", with: "'\\''")
+            exports += "export \(key)='\(escapedValue)'; "
+        }
+
+        // Send all messages via printf (newline-delimited), then sleep to allow processing,
+        // then the shell pipeline ends and the process receives EOF on stdin.
+        let messageLines = messages.map { $0.replacingOccurrences(of: "'", with: "'\\''") }
+        let printfArgs = messageLines.map { "'\($0)'" }.joined(separator: " ")
+
+        let shellCommand = """
+        \(exports)(printf '%s\\n' \(printfArgs); sleep \(timeout)) | '\(escapedPath)' --mcp &
+        PID=$!
+        sleep \(timeout)
+        kill $PID 2>/dev/null
+        wait $PID 2>/dev/null
+        """
+
+        let result = try await Subprocess.run(
+            .path("/bin/sh"),
+            arguments: ["-c", shellCommand],
+            output: .string(limit: 256 * 1024),
+            error: .string(limit: 64 * 1024)
+        )
+
+        let exitCode: Int
+        if case .exited(let code) = result.terminationStatus {
+            exitCode = Int(code)
+        } else {
+            exitCode = -1
+        }
+
+        return CommandResult(
+            exitCode: exitCode,
+            stdout: result.standardOutput ?? "",
+            stderr: result.standardError ?? ""
+        )
+    }
 }
 
 /// Creates an isolated temporary git repository for testing.

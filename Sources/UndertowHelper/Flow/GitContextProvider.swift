@@ -78,7 +78,7 @@ enum GitContextProvider {
             return "[Undertow Flow] No activity detected in \(dir)."
         }
 
-        return "[Undertow Flow Context]\n" + sections.joined(separator: "\n\n")
+        return sections.joined(separator: "\n\n")
     }
 
     /// Build a hybrid flow context combining git snapshot with live observer data.
@@ -86,10 +86,12 @@ enum GitContextProvider {
     /// - Parameters:
     ///   - projectDir: The project root directory.
     ///   - buildObserver: Live build log observer (used in MCP server mode).
+    ///   - fileObserver: Live file system observer (used in MCP server mode).
     /// - Returns: A formatted string with git snapshot and any available observer data.
     static func gatherHybridContext(
         projectDir: String? = nil,
-        buildObserver: BuildLogObserver? = nil
+        buildObserver: BuildLogObserver? = nil,
+        fileObserver: FileSystemObserver? = nil
     ) async -> String {
         let dir = projectDir
             ?? ProcessInfo.processInfo.environment["PROJECT_DIR"]
@@ -108,6 +110,18 @@ enum GitContextProvider {
             extras.append(formatBuildStatus(build))
         } else if let buildInfo = probeBinaryBuildStatus() {
             extras.append(buildInfo)
+        }
+
+        // File activity: live FSEvents from FileSystemObserver
+        if let fileObs = fileObserver {
+            let events = await fileObs.recentEvents()
+            if !events.isEmpty {
+                let lines = events.suffix(15).map { event in
+                    let relative = event.path.replacingOccurrences(of: dir + "/", with: "")
+                    return "  \(event.type.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)) \(relative)"
+                }
+                extras.append("File activity (\(events.count) event\(events.count == 1 ? "" : "s")):\n" + lines.joined(separator: "\n"))
+            }
         }
 
         // Xcode state: only available from persisted context (background service)
@@ -252,5 +266,22 @@ enum GitContextProvider {
         // Only use if reasonably fresh (within last 5 minutes)
         guard context.timestamp.timeIntervalSinceNow > -300 else { return nil }
         return context
+    }
+
+    // MARK: - Path Resolution
+
+    /// Resolve a workspace/project path into a root directory and project name.
+    ///
+    /// - `/path/to/undertow/Undertow.xcworkspace` → root: `/path/to/undertow`, name: `Undertow`
+    /// - `/path/to/undertow/Undertow.xcodeproj` → root: `/path/to/undertow`, name: `Undertow`
+    /// - `/path/to/undertow` → root: `/path/to/undertow`, name: `undertow`
+    static func resolveProject(path: String) -> (root: String, name: String) {
+        let ext = (path as NSString).pathExtension
+        if ext == "xcworkspace" || ext == "xcodeproj" {
+            let root = (path as NSString).deletingLastPathComponent
+            let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            return (root, name)
+        }
+        return (path, (path as NSString).lastPathComponent)
     }
 }

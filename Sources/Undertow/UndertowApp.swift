@@ -1,31 +1,38 @@
 import SwiftUI
-import UndertowKit
 
 @main
 struct UndertowApp: App {
     @State private var serviceStatus = ServiceStatus()
+    @State private var setupManager = SetupManager()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        WindowGroup {
-            ContentView(serviceStatus: serviceStatus)
-        }
-
         MenuBarExtra("Undertow", systemImage: "water.waves") {
-            VStack(alignment: .leading) {
-                Label(
-                    serviceStatus.bridgeConnected ? "Bridge: Connected" : "Bridge: Disconnected",
-                    systemImage: serviceStatus.bridgeConnected ? "checkmark.circle.fill" : "xmark.circle"
-                )
-                Label(
-                    serviceStatus.helperConnected ? "Helper: Connected" : "Helper: Disconnected",
-                    systemImage: serviceStatus.helperConnected ? "checkmark.circle.fill" : "xmark.circle"
-                )
-                Divider()
-                Button("Quit Undertow") {
-                    NSApplication.shared.terminate(nil)
-                }
+            MenuBarPopover(
+                serviceStatus: serviceStatus,
+                setupManager: setupManager,
+                onOpenSettings: { openSettingsWindow() },
+                onQuit: { NSApplication.shared.terminate(nil) }
+            )
+            .task {
+                serviceStatus.refreshAll(using: setupManager)
             }
-            .padding(8)
         }
+        .menuBarExtraStyle(.window)
+
+        Window("Undertow Settings", id: "settings") {
+            SettingsView(
+                serviceStatus: serviceStatus,
+                setupManager: setupManager
+            )
+            .onAppear { NSApp.setActivationPolicy(.regular) }
+            .onDisappear { NSApp.setActivationPolicy(.accessory) }
+        }
+        .defaultSize(width: 560, height: 480)
+    }
+
+    private func openSettingsWindow() {
+        openWindow(id: "settings")
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

@@ -49,7 +49,7 @@ Project.swift defines 6 targets:
 ├── UndertowHelper        (command-line tool, non-sandboxed, MCP server + flow engine)
 ├── UndertowExtension     (Xcode Source Editor Extension, .appex — may be stripped)
 ├── UndertowKit           (static library, shared models between all targets)
-└── UndertowTests         (unit + integration tests, 41 passing)
+└── UndertowTests         (unit + integration tests, 48 passing)
 ```
 
 **Binary deployment:**
@@ -73,7 +73,7 @@ Post-build script in Project.swift auto-copies, re-signs, and creates symlink on
 - Source Editor Extension with PingCommand
 - `.claude.json` configured with MCP server for undertow project
 - Post-build script for auto-install + re-sign + symlink
-- 41 tests (UndertowTests scheme) including 7 integration tests
+- 48 tests (UndertowTests scheme) including 12 integration tests
 
 ### MCP Tools registered:
 1. `hello` — Server health check
@@ -109,14 +109,12 @@ Post-build script in Project.swift auto-copies, re-signs, and creates symlink on
 - Extracts success/failure, error messages, warning counts
 - Stores as `BuildStatus` struct
 
-### 1.3 — File System Observer — STUBBED
-**File:** `Sources/UndertowHelper/Flow/FileSystemObserver.swift`
-
-**TODO:**
-- Use `DispatchSource.makeFileSystemObjectSource` or `FSEvents` to watch project directory
-- Track creates, modifications, deletes, renames
+### 1.3 — File System Observer — COMPLETE
+- `Sources/UndertowHelper/Flow/FileSystemObserver.swift`
+- FSEvents with 1s debounce, filters hidden/build dirs, deduplicates within 2s
 - Rolling buffer: last 50 events or 10 minutes
-- Debounce rapid changes
+- Wired into `get_flow_context` via `gatherHybridContext(fileObserver:)`
+- Output includes `[File Activity]` section with event type and relative path
 
 ### 1.4 — Xcode State Observer (Accessibility API) — STUBBED
 **Files:**
@@ -131,14 +129,8 @@ Post-build script in Project.swift auto-copies, re-signs, and creates symlink on
 - Does NOT need XPC — runs directly in UndertowHelper process
 - Requires Accessibility permission (`AXIsProcessTrusted()`)
 
-### 1.5 — Flow Context Aggregator — PARTIAL
-**File:** `Sources/UndertowHelper/Flow/FlowContextAggregator.swift`
-
-**What works:** Project path resolution, observer initialization scaffolding
-**TODO:**
-- Combine FS, build, and AX observer streams into unified `FlowContext`
-- Persist to disk so MCP server can read observer data (hybrid model)
-- Intelligent compression: group consecutive edits, summarize navigation
+### 1.5 — Flow Context Aggregator — REMOVED
+Deleted `FlowContextAggregator.swift`. Its continuous stream-merging + disk persistence model was designed for a background daemon feeding short-lived clients, but MCP is pull-based — the tool queries each observer on demand. The `resolveProject()` utility was moved to `GitContextProvider`. XPCController updated to call `GitContextProvider.gatherHybridContext()` directly.
 
 ### 1.6 — Context Delivery via MCP — COMPLETE
 Instead of hooks (which don't work in Xcode), flow context is delivered via:
@@ -180,66 +172,97 @@ Instead of hooks (which don't work in Xcode), flow context is delivered via:
 
 ---
 
-## Phase 3: Persistent Memory System — NOT STARTED
+## Phase 3: Setup & Onboarding GUI — IN PROGRESS (Highest Priority)
 
-### 3.1 — Memory Store
+The host app needs a proper setup/management interface so users can install, configure, and verify Undertow without manual file editing.
+
+### 3.1 — Models & XPC Protocol — COMPLETE
+- `SetupStatusReport`, `ProjectConfig`, `ConfigTarget`, `VerificationResult` in UndertowKit
+- `BridgeXPCProtocol` expanded with 6 new methods: `getSetupStatus`, `addProjectConfig`, `removeProjectConfig`, `verifyMCPServer`, `ensureHelperInstalled`, `checkAccessibility`
+
+### 3.2 — Bridge Config Operations — COMPLETE
+- `ConfigManager` in ServiceDelegate handles all filesystem operations (non-sandboxed)
+- JSON config I/O using `JSONSerialization` (preserves unknown keys from other tools)
+- Reads/writes both Xcode (`~/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/.claude.json`) and Claude Code CLI (`~/.claude.json`) configs
+- MCP server verification: spawns helper, sends JSON-RPC init, checks response within 5s
+- Helper installation: copies from app bundle, code-signs, creates symlink
+
+### 3.3 — App UI — COMPLETE
+- `SetupNavigationView` — Root `NavigationSplitView` with sidebar: Status / Projects / Permissions
+- `StatusSection` — Service connectivity + installation health + "Repair Installation"
+- `ProjectsSection` + `ProjectRow` + `AddProjectSheet` — Add/remove/verify projects with Xcode/Claude Code badges
+- `PermissionsSection` — Accessibility + Extension permission status with System Settings links
+- `BridgeClient` — Async XPC wrapper for all Bridge operations
+- `StatusBadge` — Reusable capsule badge component
+
+### 3.4 — TODO: End-to-End Testing
+- Launch Undertow.app, verify sidebar navigation
+- Add a project via directory picker, confirm `.claude.json` entry created
+- Verify button confirms MCP server starts and responds
+- Permissions section opens correct System Settings panels
+
+---
+
+## Phase 4: Persistent Memory System — NOT STARTED
+
+### 4.1 — Memory Store
 - Store memories as JSON in `.undertow/memories.json`
 - CRUD operations exposed as MCP tools: `get_memories(query:)`, `save_memory(content:tags:)`
 
-### 3.2 — Memory Relevance Retrieval
+### 4.2 — Memory Relevance Retrieval
 - Score memories against query using Foundation Models
 - User-created memories injected unconditionally (project rules)
 - Auto-generated memories scored and top-k injected
 
-### 3.3 — Auto-Memory Detection
+### 4.3 — Auto-Memory Detection
 - After agent interactions, detect reusable facts/conventions
 - Use Foundation Models for extraction
 - Notification for user approval before saving
 
-### 3.4 — CLAUDE.md Sync
+### 4.4 — CLAUDE.md Sync
 - Optionally write user memories to CLAUDE.md
 - Parse existing CLAUDE.md on load
 - Bidirectional sync with conflict detection
 
 ---
 
-## Phase 4: Checkpoints & Reverts — NOT STARTED
+## Phase 5: Checkpoints & Reverts — NOT STARTED
 
-### 4.1 — Auto-Checkpoint
+### 5.1 — Auto-Checkpoint
 - Before file modifications, create git checkpoint on shadow branch `undertow/checkpoints`
 - Trigger via MCP tool (not hooks, since hooks unavailable in Xcode)
 
-### 4.2 — Named Checkpoints MCP Tool
+### 5.2 — Named Checkpoints MCP Tool
 - `create_checkpoint(name:)`, `list_checkpoints()`, `revert_to_checkpoint(name:)`
 - Git tag based: `undertow-cp/{name}`
 
-### 4.3 — Checkpoint Browser UI
+### 5.3 — Checkpoint Browser UI
 - SwiftUI list in host app with diff viewer and one-click revert
 
 ---
 
-## Phase 5: Auto-Lint and Build Loop — NOT STARTED
+## Phase 6: Auto-Lint and Build Loop — NOT STARTED
 
-### 5.1 — Auto-Lint
+### 6.1 — Auto-Lint
 - MCP tool to run `swiftlint` on changed files
 - Agent can invoke after edits
 
-### 5.2 — Auto-Build
+### 6.2 — Auto-Build
 - MCP tool to trigger background build
 - Return structured build errors (file, line, message)
 
-### 5.3 — Test Runner MCP Tool
+### 6.3 — Test Runner MCP Tool
 - `run_tests(target:filter:)` via `xcodebuild test` or Xcode MCP
 
 ---
 
-## Phase 6: Inline Completions & Command Mode (Optional) — NOT STARTED
+## Phase 7: Inline Completions & Command Mode (Optional) — NOT STARTED
 
-### 6.1 — Source Editor Extension: Command Mode
+### 7.1 — Source Editor Extension: Command Mode
 - Commands: InlineEdit (⌘+I), Explain, Refactor, AddTests
 - Requires XPC/Bridge layer (only use case for it)
 
-### 6.2 — Inline Completion Overlay
+### 7.2 — Inline Completion Overlay
 - AX-positioned overlay at cursor in Xcode editor
 - Foundation Models for fast on-device completions
 
@@ -267,6 +290,6 @@ Instead of hooks (which don't work in Xcode), flow context is delivered via:
 
 ## Open Questions
 
-1. **Strip XPC/Bridge?** — If Source Editor Extension is dropped, UndertowBridge and XPC infrastructure can be removed. AX Observer runs directly in UndertowHelper.
+1. ~~**Strip XPC/Bridge?**~~ — **RESOLVED: Keep.** The Bridge is essential for the setup GUI — the sandboxed app delegates all filesystem operations (config I/O, helper installation, MCP verification) to the non-sandboxed Bridge via XPC.
 2. **Background service mode** — Currently UndertowHelper has a default mode that starts XPC controller. If XPC is stripped, this mode needs redesign (LaunchAgent? Manual start?).
 3. **Observer data persistence** — Where/how should background observers persist FlowContext for the MCP server to read? Currently planned as JSON file in app group container.

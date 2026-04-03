@@ -2,6 +2,10 @@ import Foundation
 import UndertowKit
 
 /// Accepts incoming XPC connections and implements the bridge protocol.
+///
+/// The bridge handles runtime communication between the Source Editor extension
+/// and UndertowHelper. Setup and configuration operations are handled directly
+/// by the host app via security-scoped bookmarks (see SetupManager).
 final class ServiceDelegate: NSObject, NSXPCListenerDelegate {
     /// The helper's anonymous XPC listener endpoint, if registered.
     private var helperEndpoint: NSXPCListenerEndpoint?

@@ -88,12 +88,15 @@ actor FileSystemObserver {
     // MARK: - Internal
 
     fileprivate func handleEvent(path: String, flags: FSEventStreamEventFlags) {
-        // Skip hidden files, DerivedData, build artifacts, .git
+        // Skip hidden files, DerivedData, build artifacts, .git, Xcode workspace state
         let fileName = (path as NSString).lastPathComponent
         if fileName.hasPrefix(".") { return }
         if path.contains("/DerivedData/") { return }
         if path.contains("/.build/") { return }
         if path.contains("/.git/") { return }
+        if path.contains("/xcuserdata/") { return }
+        if path.contains(".xcworkspace/") { return }
+        if fileName.hasSuffix(".tmp") || fileName.contains(".sb-") { return }
 
         let type: FileEvent.EventType
         if flags & UInt32(kFSEventStreamEventFlagItemCreated) != 0 {

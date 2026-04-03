@@ -80,7 +80,7 @@ actor SemanticSearchEngine {
 
         let scored = await scorer.score(
             query: query,
-            candidates: bm25Candidates,
+            candidates: bm25Candidates,  // carries BM25 scores for threshold check
             topK: topK
         )
         results.append(contentsOf: scored)

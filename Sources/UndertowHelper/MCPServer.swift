@@ -19,11 +19,13 @@ final class UndertowMCPServer: Sendable {
     func start() async throws {
         // Initialize from workspace context
         let projectPath = detectProjectPath()
-        let (projectRoot, projectName) = FlowContextAggregator.resolveProject(path: projectPath)
+        let (projectRoot, projectName) = GitContextProvider.resolveProject(path: projectPath)
         await searchEngine.initialize(projectRoot: projectRoot, projectName: projectName)
 
         // Start background observers
         await buildObserver.start(projectName: projectName)
+        let fileObserver = FileSystemObserver(path: projectRoot)
+        await fileObserver.start()
 
         // Tool definitions
         let helloTool = Tool(
@@ -51,6 +53,7 @@ final class UndertowMCPServer: Sendable {
         let engine = searchEngine
         let projectDir = projectPath
         let buildObs = buildObserver
+        let fileObs = fileObserver
         await server.withMethodHandler(CallTool.self) { params in
             switch params.name {
             case "hello":
@@ -58,7 +61,8 @@ final class UndertowMCPServer: Sendable {
             case "get_flow_context":
                 let context = await GitContextProvider.gatherHybridContext(
                     projectDir: projectDir,
-                    buildObserver: buildObs
+                    buildObserver: buildObs,
+                    fileObserver: fileObs
                 )
                 return .init(content: [.text(text: context, annotations: nil, _meta: nil)])
             case "semantic_search", "find_symbol_references", "find_conformances":

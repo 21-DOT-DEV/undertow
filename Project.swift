@@ -127,6 +127,9 @@ let project = Project(
             product: .app,
             bundleId: "dev.21.Undertow",
             deploymentTargets: .macOS("26.0"),
+            infoPlist: .extendingDefault(with: [
+                "LSUIElement": true
+            ]),
             sources: ["Sources/Undertow/**"],
             resources: [
                 "Resources/Undertow/Assets.xcassets/**",
