@@ -9,8 +9,12 @@ struct ProjectsSection: View {
     @State private var isRepairing = false
     @State private var repairMessage: String?
 
+    private var hasAccess: Bool {
+        setupManager.accessState == .accessGranted
+    }
+
     private var allHealthy: Bool {
-        serviceStatus.helperInstalled && serviceStatus.symlinkValid
+        hasAccess && serviceStatus.helperInstalled && serviceStatus.symlinkValid
     }
 
     var body: some View {
@@ -19,11 +23,15 @@ struct ProjectsSection: View {
                 header
                 Divider()
 
-                if !allHealthy {
+                if !hasAccess {
+                    filesystemAccessGroup
+                } else if !allHealthy {
                     mcpServerGroup
                 }
 
-                projectsGroup
+                if hasAccess {
+                    projectsGroup
+                }
             }
             .padding()
         }
@@ -32,6 +40,7 @@ struct ProjectsSection: View {
                 Button("Add Project", systemImage: "plus") {
                     showingAddSheet = true
                 }
+                .disabled(!hasAccess)
             }
         }
         .sheet(isPresented: $showingAddSheet) {
@@ -53,7 +62,7 @@ struct ProjectsSection: View {
             VStack(alignment: .leading) {
                 Text("Undertow")
                     .font(.title.bold())
-                Text(allHealthy ? "Ready" : "Setup required")
+                Text(statusSubtitle)
                     .font(.subheadline)
                     .foregroundColor(allHealthy ? .secondary : .orange)
             }
@@ -64,6 +73,28 @@ struct ProjectsSection: View {
                 Image(systemName: "arrow.clockwise")
             }
             .help("Refresh status")
+        }
+    }
+
+    private var statusSubtitle: String {
+        if !hasAccess { return "Access required" }
+        if !allHealthy { return "Setup required" }
+        return "Ready"
+    }
+
+    // MARK: - Filesystem Access
+
+    private var filesystemAccessGroup: some View {
+        GroupBox("Home Folder Access") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "folder.badge.questionmark")
+                        .foregroundStyle(.orange)
+                    Text("Go to the Permissions tab to grant home folder access.")
+                        .font(.callout)
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
 

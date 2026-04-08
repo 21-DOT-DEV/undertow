@@ -14,9 +14,6 @@ struct UndertowApp: App {
                 onOpenSettings: { openSettingsWindow() },
                 onQuit: { NSApplication.shared.terminate(nil) }
             )
-            .task {
-                serviceStatus.refreshAll(using: setupManager)
-            }
         }
         .menuBarExtraStyle(.window)
 

@@ -14,11 +14,15 @@ struct SettingsView: View {
                 )
             }
             Tab("Permissions", systemImage: "lock.shield") {
-                PermissionsSection(serviceStatus: serviceStatus)
+                PermissionsSection(serviceStatus: serviceStatus, setupManager: setupManager)
             }
         }
         .onAppear {
-            serviceStatus.refreshAll(using: setupManager)
+            // Only refresh when access is already granted — avoid triggering
+            // any OS permission dialogs on window/tab appearance.
+            if setupManager.accessState == .accessGranted {
+                serviceStatus.refreshAll(using: setupManager)
+            }
         }
     }
 }

@@ -243,6 +243,161 @@ struct SetupStatusTests {
     }
 }
 
+// MARK: - Project Verification Tests
+
+@Suite("Project Verification")
+struct ProjectVerificationTests {
+    let tempHome: URL
+    let manager: ConfigManager
+
+    init() throws {
+        tempHome = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("UndertowVerifyTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempHome, withIntermediateDirectories: true)
+        manager = ConfigManager(home: tempHome)
+    }
+
+    @Test("no config entry returns failed")
+    func noConfigEntry() throws {
+        // Setup helper + symlink but no config
+        let fm = FileManager.default
+        try fm.createDirectory(at: manager.installDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: manager.helperPath.path, contents: "binary".data(using: .utf8))
+        try fm.createDirectory(at: manager.symlinkDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: manager.symlinkPath.path,
+            withDestinationPath: manager.helperPath.path
+        )
+
+        let result = manager.verifyProject(path: "/Users/test/project")
+        #expect(!result.success)
+        #expect(result.message.contains("No config entry"))
+    }
+
+    @Test("missing binary returns failed")
+    func missingBinary() {
+        let result = manager.verifyProject(path: "/Users/test/project")
+        #expect(!result.success)
+        #expect(result.message.contains("Helper binary not found"))
+    }
+
+    @Test("valid config returns success")
+    func validConfig() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: manager.installDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: manager.helperPath.path, contents: "binary".data(using: .utf8))
+        try fm.createDirectory(at: manager.symlinkDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: manager.symlinkPath.path,
+            withDestinationPath: manager.helperPath.path
+        )
+
+        try manager.addProject(path: "/Users/test/project", target: .xcode)
+
+        let result = manager.verifyProject(path: "/Users/test/project")
+        #expect(result.success)
+        #expect(result.message == "OK")
+    }
+
+    @Test("broken symlink returns failed")
+    func brokenSymlink() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: manager.installDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: manager.helperPath.path, contents: "binary".data(using: .utf8))
+        try fm.createDirectory(at: manager.symlinkDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: manager.symlinkPath.path,
+            withDestinationPath: "/nonexistent/path"
+        )
+
+        let result = manager.verifyProject(path: "/Users/test/project")
+        #expect(!result.success)
+        #expect(result.message.contains("Symlink"))
+    }
+
+    @Test("missing --mcp arg returns failed")
+    func missingMcpArg() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: manager.installDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: manager.helperPath.path, contents: "binary".data(using: .utf8))
+        try fm.createDirectory(at: manager.symlinkDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: manager.symlinkPath.path,
+            withDestinationPath: manager.helperPath.path
+        )
+
+        // Write config with no --mcp arg
+        let json: [String: Any] = [
+            "projects": [
+                "/Users/test/project": [
+                    "mcpServers": [
+                        "undertow": [
+                            "command": manager.helperCommand,
+                            "args": ["--hook"]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        try manager.writeConfigJSON(json, to: manager.xcodeConfigPath)
+
+        let result = manager.verifyProject(path: "/Users/test/project")
+        #expect(!result.success)
+        #expect(result.message.contains("--mcp"))
+    }
+
+    @Test("mismatched PROJECT_DIR returns failed")
+    func mismatchedProjectDir() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: manager.installDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: manager.helperPath.path, contents: "binary".data(using: .utf8))
+        try fm.createDirectory(at: manager.symlinkDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: manager.symlinkPath.path,
+            withDestinationPath: manager.helperPath.path
+        )
+
+        let json: [String: Any] = [
+            "projects": [
+                "/Users/test/project": [
+                    "mcpServers": [
+                        "undertow": [
+                            "command": manager.helperCommand,
+                            "args": ["--mcp"],
+                            "env": ["PROJECT_DIR": "/Users/test/wrong-project"]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        try manager.writeConfigJSON(json, to: manager.xcodeConfigPath)
+
+        let result = manager.verifyProject(path: "/Users/test/project")
+        #expect(!result.success)
+        #expect(result.message.contains("PROJECT_DIR"))
+    }
+
+    @Test("finds entry in Claude Code config when not in Xcode config")
+    func findsClaudeCodeEntry() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: manager.installDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: manager.helperPath.path, contents: "binary".data(using: .utf8))
+        try fm.createDirectory(at: manager.symlinkDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: manager.symlinkPath.path,
+            withDestinationPath: manager.helperPath.path
+        )
+
+        // Only write to Claude Code config, not Xcode
+        try manager.addProject(path: "/Users/test/project", target: .claudeCode)
+
+        // Xcode verify should fail (no xcode entry)
+        let result = manager.verifyProject(path: "/Users/test/project")
+        #expect(!result.success)
+        #expect(result.message.contains("No config entry"))
+    }
+}
+
 // MARK: - Bookmark State Tests
 
 @Suite("Bookmark State")

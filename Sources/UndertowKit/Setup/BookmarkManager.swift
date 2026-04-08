@@ -15,6 +15,11 @@ public final class BookmarkManager {
 
     public private(set) var accessState: AccessState = .noBookmark
 
+    /// Whether bookmark data exists in UserDefaults.
+    /// Cached at init to avoid reading from the app group container in view bodies,
+    /// which can trigger the sandbox "access data from other apps" dialog.
+    public private(set) var hasStoredBookmark: Bool = false
+
     private var scopedURL: URL?
     private let defaults: UserDefaults
 
@@ -22,11 +27,18 @@ public final class BookmarkManager {
 
     public init(defaults: UserDefaults) {
         self.defaults = defaults
+        // Read once at init time — happens at app startup before any views render.
+        self.hasStoredBookmark = defaults.data(forKey: Self.bookmarkKey) != nil
     }
 
-    /// Restore a previously stored bookmark on app launch.
+    /// Restore a previously stored bookmark.
+    ///
+    /// Call this only from user-initiated flows (e.g. Permissions tab onAppear)
+    /// because resolving a stale bookmark can trigger an OS permission dialog
+    /// during development (when the app is re-signed).
     public func restoreBookmark() {
         guard let data = defaults.data(forKey: Self.bookmarkKey) else {
+            hasStoredBookmark = false
             accessState = .noBookmark
             return
         }
@@ -70,6 +82,7 @@ public final class BookmarkManager {
             relativeTo: nil
         )
         defaults.set(bookmarkData, forKey: Self.bookmarkKey)
+        hasStoredBookmark = true
 
         guard url.startAccessingSecurityScopedResource() else {
             accessState = .bookmarkStale
@@ -85,6 +98,7 @@ public final class BookmarkManager {
         scopedURL?.stopAccessingSecurityScopedResource()
         scopedURL = nil
         defaults.removeObject(forKey: Self.bookmarkKey)
+        hasStoredBookmark = false
         accessState = .noBookmark
     }
 }

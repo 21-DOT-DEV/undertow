@@ -1,6 +1,5 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import UndertowKit
 
 /// Sheet for selecting a project directory and configuring Undertow.
 struct AddProjectSheet: View {
@@ -10,8 +9,6 @@ struct AddProjectSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedPath: String?
-    @State private var configureForXcode = true
-    @State private var configureForClaudeCode = true
     @State private var isAdding = false
     @State private var errorMessage: String?
     @State private var showingFilePicker = false
@@ -21,7 +18,7 @@ struct AddProjectSheet: View {
             Text("Add Project")
                 .font(.title2.bold())
 
-            Text("Select a project directory to configure Undertow's MCP server.")
+            Text("Select a project directory to configure Undertow's MCP server for Xcode's Coding Assistant.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -42,14 +39,6 @@ struct AddProjectSheet: View {
                 }
             }
 
-            // Config target toggles
-            GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Xcode Coding Assistant", isOn: $configureForXcode)
-                    Toggle("Claude Code CLI", isOn: $configureForClaudeCode)
-                }
-            }
-
             if let error = errorMessage {
                 Text(error)
                     .foregroundStyle(.red)
@@ -66,11 +55,7 @@ struct AddProjectSheet: View {
                     addProject()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(
-                    selectedPath == nil
-                    || (!configureForXcode && !configureForClaudeCode)
-                    || isAdding
-                )
+                .disabled(selectedPath == nil || isAdding)
             }
         }
         .padding(20)
@@ -93,16 +78,8 @@ struct AddProjectSheet: View {
         errorMessage = nil
         defer { isAdding = false }
 
-        let target: ConfigTarget
-        switch (configureForXcode, configureForClaudeCode) {
-        case (true, true): target = .both
-        case (true, false): target = .xcode
-        case (false, true): target = .claudeCode
-        case (false, false): return
-        }
-
         do {
-            try setupManager.addProject(path: path, target: target)
+            try setupManager.addProject(path: path)
             onAdded()
             dismiss()
         } catch {

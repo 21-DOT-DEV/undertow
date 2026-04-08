@@ -33,12 +33,6 @@ struct ProjectRow: View {
                     .truncationMode(.middle)
 
                 HStack(spacing: 4) {
-                    if project.xcodeConfigured {
-                        StatusBadge(text: "Xcode", level: .info)
-                    }
-                    if project.claudeCodeConfigured {
-                        StatusBadge(text: "Claude Code", level: .info)
-                    }
                     verifyBadge
                 }
             }
@@ -59,30 +53,9 @@ struct ProjectRow: View {
         }
         .padding(.vertical, 4)
         .contextMenu {
-            if project.xcodeConfigured {
-                Button("Remove from Xcode") {
-                    try? setupManager.removeProject(
-                        path: project.path, target: .xcode
-                    )
-                    onRemove()
-                }
-            }
-            if project.claudeCodeConfigured {
-                Button("Remove from Claude Code") {
-                    try? setupManager.removeProject(
-                        path: project.path, target: .claudeCode
-                    )
-                    onRemove()
-                }
-            }
-            if project.xcodeConfigured && project.claudeCodeConfigured {
-                Divider()
-                Button("Remove from All", role: .destructive) {
-                    try? setupManager.removeProject(
-                        path: project.path, target: .both
-                    )
-                    onRemove()
-                }
+            Button("Remove", role: .destructive) {
+                try? setupManager.removeProject(path: project.path)
+                onRemove()
             }
         }
     }
@@ -107,7 +80,6 @@ struct ProjectRow: View {
 
     private func verify() async {
         verifyState = .verifying
-        // Capture values for use off main actor — subprocess with 5s timeout
         let manager = setupManager
         let path = project.path
         let result = await Task.detached {

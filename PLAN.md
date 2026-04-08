@@ -8,7 +8,7 @@
 | Deployment target | macOS 26 only |
 | MCP SDK | `modelcontextprotocol/swift-sdk` (official) |
 | Project management | Tuist (`swift-plugin-tuist` v4.169.1) |
-| Distribution | Direct (DMG/Homebrew), Developer ID notarized, not App Store |
+| Distribution | App Store, sandboxed with security-scoped bookmarks |
 | Process API | `Subprocess` (`swift-subprocess` 0.2.1) — never `Foundation.Process` |
 | Flow context delivery | Hybrid: git snapshot (always) + background observer data (when available) |
 | Instructional layer | CLAUDE.md (now) + placeholder SKILL.md, defer Commands |
@@ -48,8 +48,8 @@ Project.swift defines 6 targets:
 ├── UndertowBridge        (command-line tool, non-sandboxed, XPC forwarder — may be stripped)
 ├── UndertowHelper        (command-line tool, non-sandboxed, MCP server + flow engine)
 ├── UndertowExtension     (Xcode Source Editor Extension, .appex — may be stripped)
-├── UndertowKit           (static library, shared models between all targets)
-└── UndertowTests         (unit + integration tests, 48 passing)
+├── UndertowKit           (static library, shared models + ConfigManager + BookmarkManager)
+└── UndertowTests         (unit + integration tests, 75 passing)
 ```
 
 **Binary deployment:**
@@ -172,34 +172,39 @@ Instead of hooks (which don't work in Xcode), flow context is delivered via:
 
 ---
 
-## Phase 3: Setup & Onboarding GUI — IN PROGRESS (Highest Priority)
+## Phase 3: Setup & Onboarding GUI — COMPLETE
 
-The host app needs a proper setup/management interface so users can install, configure, and verify Undertow without manual file editing.
+The host app provides a setup/management interface so users can install, configure, and verify Undertow without manual file editing. The app is **sandboxed** (App Store) and uses **security-scoped bookmarks** for filesystem access.
 
-### 3.1 — Models & XPC Protocol — COMPLETE
+### 3.1 — Models — COMPLETE
 - `SetupStatusReport`, `ProjectConfig`, `ConfigTarget`, `VerificationResult` in UndertowKit
-- `BridgeXPCProtocol` expanded with 6 new methods: `getSetupStatus`, `addProjectConfig`, `removeProjectConfig`, `verifyMCPServer`, `ensureHelperInstalled`, `checkAccessibility`
+- `ConfigManager` in UndertowKit — testable config I/O with injectable `home: URL`
+- `BookmarkManager` in UndertowKit — security-scoped bookmark persistence with access state
 
-### 3.2 — Bridge Config Operations — COMPLETE
-- `ConfigManager` in ServiceDelegate handles all filesystem operations (non-sandboxed)
+### 3.2 — Config Operations (Sandboxed + Bookmarks) — COMPLETE
+- `ConfigManager` in UndertowKit handles all filesystem operations directly
 - JSON config I/O using `JSONSerialization` (preserves unknown keys from other tools)
-- Reads/writes both Xcode (`~/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/.claude.json`) and Claude Code CLI (`~/.claude.json`) configs
-- MCP server verification: spawns helper, sends JSON-RPC init, checks response within 5s
+- Reads Xcode config only (`~/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/.claude.json`) — Undertow is Xcode-only
+- MCP server verification: filesystem-only config validation (checks entry exists, command binary exists via `fileExists`, symlink intact, --mcp arg present, PROJECT_DIR matches)
 - Helper installation: copies from app bundle, code-signs, creates symlink
+- Uses `getpwuid(getuid())` for real home directory (not sandbox container)
+- `BookmarkManager` stores security-scoped bookmark to home directory in app group UserDefaults
 
 ### 3.3 — App UI — COMPLETE
-- `SetupNavigationView` — Root `NavigationSplitView` with sidebar: Status / Projects / Permissions
-- `StatusSection` — Service connectivity + installation health + "Repair Installation"
-- `ProjectsSection` + `ProjectRow` + `AddProjectSheet` — Add/remove/verify projects with Xcode/Claude Code badges
-- `PermissionsSection` — Accessibility + Extension permission status with System Settings links
-- `BridgeClient` — Async XPC wrapper for all Bridge operations
+- `SettingsView` — `TabView` with two tabs: Projects + Permissions
+- `ProjectsSection` — Combined status header (Undertow branding + health) + "Grant Access" prompt when bookmark not granted + MCP server health (shown only when unhealthy) + project list with per-project verify/remove
+- `ProjectRow` + `AddProjectSheet` — Add/remove/verify projects (Xcode-only, no checkboxes)
+- `PermissionsSection` — Home Folder Access (grant/revoke via `fileImporter`) + Accessibility + Extension permission status
+- `SetupManager` — `@Observable` class wrapping `ConfigManager` + `BookmarkManager`, access state guards on all operations
+- `MenuBarPopover` — Menu bar with health dot (checks both access state + helper installed)
 - `StatusBadge` — Reusable capsule badge component
+- Uses `fileImporter` (not `NSOpenPanel`) to avoid layout recursion warnings
 
-### 3.4 — TODO: End-to-End Testing
-- Launch Undertow.app, verify sidebar navigation
-- Add a project via directory picker, confirm `.claude.json` entry created
-- Verify button confirms MCP server starts and responds
-- Permissions section opens correct System Settings panels
+### 3.4 — Tests — COMPLETE (75 tests)
+- Config I/O tests (read/write/round-trip with injectable home directory)
+- Setup status tests (helper detection, symlink validation)
+- Bookmark state tests (initial, restore, revoke, grant-revoke cycle)
+- Project verification tests (7 tests: no config entry, missing binary, valid config, broken symlink, missing --mcp arg, mismatched PROJECT_DIR, finds Claude Code entry)
 
 ---
 
@@ -290,6 +295,6 @@ The host app needs a proper setup/management interface so users can install, con
 
 ## Open Questions
 
-1. ~~**Strip XPC/Bridge?**~~ — **RESOLVED: Keep.** The Bridge is essential for the setup GUI — the sandboxed app delegates all filesystem operations (config I/O, helper installation, MCP verification) to the non-sandboxed Bridge via XPC.
+1. ~~**Strip XPC/Bridge?**~~ — **RESOLVED: Keep for Extension path only.** Setup operations use direct filesystem access via security-scoped bookmarks (no XPC needed). Bridge XPC is kept only for Extension → Helper communication.
 2. **Background service mode** — Currently UndertowHelper has a default mode that starts XPC controller. If XPC is stripped, this mode needs redesign (LaunchAgent? Manual start?).
 3. **Observer data persistence** — Where/how should background observers persist FlowContext for the MCP server to read? Currently planned as JSON file in app group container.
